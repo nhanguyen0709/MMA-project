@@ -1,12 +1,6 @@
-// src/context/AuthContext.js
+// Auth Context for managing user state
 import React, { createContext, useState, useEffect } from "react";
-import { auth } from "../services/firebase";
-import {
-  onAuthStateChanged,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut,
-} from "firebase/auth";
+import { getCurrentUser, loginUser, registerUser, logoutUser } from "../services/authService";
 
 export const AuthContext = createContext();
 
@@ -15,22 +9,45 @@ export function AuthProvider({ children }) {
   const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      if (initializing) setInitializing(false);
-    });
-    return unsub;
+    checkAuthState();
   }, []);
 
-  const register = (email, password) =>
-    createUserWithEmailAndPassword(auth, email, password);
+  const checkAuthState = async () => {
+    try {
+      const currentUser = await getCurrentUser();
+      setUser(currentUser);
+    } catch (error) {
+      console.error("Auth check error:", error);
+    } finally {
+      setInitializing(false);
+    }
+  };
 
-  const login = (email, password) => signInWithEmailAndPassword(auth, email, password);
+  const login = async (email, password) => {
+    const user = await loginUser(email, password);
+    setUser(user);
+    return user;
+  };
 
-  const logout = () => signOut(auth);
+  const register = async (email, password) => {
+    const user = await registerUser(email, password);
+    setUser(user);
+    return user;
+  };
+
+  const logout = async () => {
+    await logoutUser();
+    setUser(null);
+  };
 
   return (
-    <AuthContext.Provider value={{ user, initializing, register, login, logout }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      initializing, 
+      login, 
+      register, 
+      logout 
+    }}>
       {children}
     </AuthContext.Provider>
   );

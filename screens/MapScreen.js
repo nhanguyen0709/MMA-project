@@ -1,16 +1,20 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useContext } from "react";
 import MapView, { Marker } from "react-native-maps";
-import { getAllPhotosForCurrentUser } from "../services/photoService";
+import { getAllPhotos } from "../services/cloudinaryPhotoService";
+import { AuthContext } from "../context/AuthContext";
 
 export default function MapScreen({ navigation }) {
+  const { user } = useContext(AuthContext);
   const [photos, setPhotos] = useState([]);
 
   useEffect(() => {
     (async () => {
-      const data = await getAllPhotosForCurrentUser();
-      setPhotos(data);
+      if (user) {
+        const data = await getAllPhotos(user.id);
+        setPhotos(data);
+      }
     })();
-  }, []);
+  }, [user]);
 
   return (
     <MapView style={{ flex: 1 }}>

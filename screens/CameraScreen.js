@@ -1,104 +1,157 @@
-import React, { useEffect, useState } from "react";
-import { View, TextInput, Image, Button, KeyboardAvoidingView, Platform, ScrollView, StyleSheet } from "react-native";
-import * as ImagePicker from "expo-image-picker";
+import React, { useEffect, useState, useRef, useContext } from "react";
+import { View, TextInput, Image, Button, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TouchableOpacity, Text } from "react-native";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Location from "expo-location";
-import * as MediaLibrary from "expo-media-library";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { classifyImage } from "../services/aiService";
-import { savePhotoForUser } from "../services/photoService";
+import { savePhotoToCloudinary } from "../services/cloudinaryPhotoService";
+import { AuthContext } from "../context/AuthContext";
 
 export default function CameraScreen({ navigation }) {
+  const { user } = useContext(AuthContext);
   const [photo, setPhoto] = useState(null);
   const [note, setNote] = useState("");
   const [coords, setCoords] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [facing, setFacing] = useState("back");
+  const [permission, requestPermission] = useCameraPermissions();
+  const cameraRef = useRef(null);
 
   useEffect(() => {
     (async () => {
-      await ImagePicker.requestCameraPermissionsAsync();
       await Location.requestForegroundPermissionsAsync();
-      await MediaLibrary.requestPermissionsAsync();
     })();
   }, []);
 
-  const resolveLocalUri = async (asset) => {
-    // On iOS, edited assets may return ph:// URIs. Resolve to localUri via MediaLibrary
-    try {
-      if (asset?.uri?.startsWith("ph://")) {
-        // Try using existing assetId when available
-        if (asset.assetId) {
-          const info = await MediaLibrary.getAssetInfoAsync(asset.assetId);
-          if (info?.localUri) return info.localUri;
-        }
-        // Fallback: create a MediaLibrary asset from the ph:// uri, then resolve
-        const created = await MediaLibrary.createAssetAsync(asset.uri);
-        const info2 = await MediaLibrary.getAssetInfoAsync(created.id);
-        if (info2?.localUri) return info2.localUri;
-      }
-    } catch {}
-    return asset?.uri;
-  };
-
-  const ensureFileUri = async (asset) => {
-    const resolved = await resolveLocalUri(asset);
-    if (resolved?.startsWith("file://")) return resolved;
-    // As last resort, copy to cache as a file://
-    try {
-      const target = `${FileSystem.cacheDirectory}${Date.now()}-photo.jpg`;
-      await FileSystem.copyAsync({ from: asset.uri, to: target });
-      return target;
-    } catch {
-      return asset.uri;
-    }
-  };
+  if (!permission) return <View />;
+  if (!permission.granted) {
+    return (
+      <View style={styles.container}>
+        <Text style={{ textAlign: "center" }}>Cần quyền truy cập camera</Text>
+        <Button onPress={requestPermission} title="Cấp quyền" />
+      </View>
+    );
+  }
 
   const takePhoto = async () => {
-    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8, saveToPhotos: false });
-    if (!result.canceled) {
-      const loc = await Location.getCurrentPositionAsync({});
-      const asset = result.assets[0];
-      const localUri = await ensureFileUri(asset);
-      setPhoto({ ...asset, uri: localUri });
-      setCoords(loc.coords);
+    try {
+      if (cameraRef.current) {
+        const photo = await cameraRef.current.takePictureAsync({
+          quality: 0.8,
+          base64: true,
+          skipProcessing: false,
+        });
+
+        const loc = await Location.getCurrentPositionAsync({});
+        const fileName = `photo_${Date.now()}.jpg`;
+        const targetUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+        await FileSystem.writeAsStringAsync(targetUri, photo.base64, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        const fileInfo = await FileSystem.getInfoAsync(targetUri);
+        if (fileInfo.exists) {
+          setPhoto({ uri: targetUri, fileName, width: photo.width, height: photo.height });
+          setCoords(loc.coords);
+        } else {
+          throw new Error("Failed to create local file");
+        }
+      }
+    } catch (error) {
+      console.error("Camera error:", error);
+      alert("Lỗi chụp ảnh: " + error.message);
     }
   };
 
   const onSave = async () => {
     if (!photo || !coords) return alert("Chụp ảnh trước đã 😅");
     setLoading(true);
-    const labels = await classifyImage(photo.uri);
-    await savePhotoForUser({ uri: photo.uri, coords, note, labels });
-    setLoading(false);
-    setPhoto(null);
-    setNote("");
-    navigation.navigate("Timeline");
+
+    try {
+      // Upload to Cloudinary and save metadata
+      const labels = await classifyImage(photo.uri);
+      await savePhotoToCloudinary({ uri: photo.uri, coords, note, labels }, user.id);
+
+      // 4️⃣ Xoá file tạm
+      try {
+        await FileSystem.deleteAsync(photo.uri, { idempotent: true });
+      } catch (cleanupError) {
+        console.warn("Cleanup error:", cleanupError);
+      }
+
+      setLoading(false);
+      setPhoto(null);
+      setNote("");
+      navigation.navigate("Timeline");
+    } catch (error) {
+      setLoading(false);
+      console.error("Save error:", error);
+      alert("Lỗi lưu ảnh: " + error.message);
+    }
   };
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-      <ScrollView contentContainerStyle={styles.container}>
-        {!photo ? (
-          <Button title="📸 Chụp ảnh" onPress={takePhoto} />
-        ) : (
-          <>
-            <Image source={{ uri: photo.uri }} style={styles.preview} />
-            <TextInput
-              style={styles.noteInput}
-              placeholder="✏️ Viết ghi chú..."
-              value={note}
-              onChangeText={setNote}
-              onSubmitEditing={onSave}
-            />
+      {!photo ? (
+        <View style={{ flex: 1 }}>
+          <CameraView style={styles.camera} facing={facing} ref={cameraRef} />
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity style={styles.button} onPress={() => setFacing((cur) => (cur === "back" ? "front" : "back"))}>
+              <Text style={styles.text}>🔄 Đổi camera</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.captureButton} onPress={takePhoto}>
+              <Text style={styles.captureText}>📸</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={styles.container}>
+          <Image source={{ uri: photo.uri }} style={styles.preview} />
+          <TextInput
+            style={styles.noteInput}
+            placeholder="✏️ Viết ghi chú..."
+            value={note}
+            onChangeText={setNote}
+            onSubmitEditing={onSave}
+          />
+          <View style={styles.buttonRow}>
+            <Button title="🔄 Chụp lại" onPress={() => setPhoto(null)} />
             <Button title={loading ? "⏳ Đang lưu..." : "💾 Lưu ảnh"} onPress={onSave} />
-          </>
-        )}
-      </ScrollView>
+          </View>
+        </ScrollView>
+      )}
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flexGrow: 1, justifyContent: "center", alignItems: "center" },
+  camera: { flex: 1 },
+  buttonContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    backgroundColor: "transparent",
+    padding: 64,
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+  },
+  button: {
+    backgroundColor: "rgba(0,0,0,0.5)",
+    padding: 10,
+    borderRadius: 5,
+  },
+  text: { fontSize: 16, color: "white" },
+  captureButton: {
+    backgroundColor: "rgba(0,0,0,0.5)",
+    padding: 20,
+    borderRadius: 50,
+    alignSelf: "center",
+  },
+  captureText: { fontSize: 24, color: "white" },
   preview: { width: "90%", height: 400, borderRadius: 10, marginBottom: 10 },
   noteInput: {
     borderColor: "#aaa",
@@ -109,6 +162,5 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     backgroundColor: "#fff",
   },
+  buttonRow: { flexDirection: "row", justifyContent: "space-around", width: "90%" },
 });
-
-

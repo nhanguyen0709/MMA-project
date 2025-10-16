@@ -9,6 +9,7 @@ import TimelineScreen from "../screens/TimelineScreen";
 import DetailScreen from "../screens/DetailScreen";
 import MapScreen from "../screens/MapScreen";
 import AlbumScreen from "../screens/AlbumScreen";
+import ProfileScreen from "../screens/Profile/ProfileScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -27,15 +28,16 @@ export default function MainNavigator() {
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarIcon: ({ color, size }) => {
-          let icon;
-          if (route.name === "Home") icon = "home";
-          else if (route.name === "Camera") icon = "camera";
-          else if (route.name === "Timeline") icon = "images";
-          else if (route.name === "Map") icon = "map";
-          else if (route.name === "Album") icon = "albums";
-          return <Ionicons name={icon} size={size} color={color} />;
-        },
+            tabBarIcon: ({ color, size }) => {
+              let icon;
+              if (route.name === "Home") icon = "home";
+              else if (route.name === "Camera") icon = "camera";
+              else if (route.name === "Timeline") icon = "images";
+              else if (route.name === "Map") icon = "map";
+              else if (route.name === "Album") icon = "albums";
+              else if (route.name === "Profile") icon = "person";
+              return <Ionicons name={icon} size={size} color={color} />;
+            },
         tabBarActiveTintColor: "#007AFF",
         tabBarInactiveTintColor: "gray",
       })}
@@ -45,6 +47,7 @@ export default function MainNavigator() {
       <Tab.Screen name="Timeline" component={TimelineStack} options={{ headerShown: false }} />
       <Tab.Screen name="Map" component={MapScreen} />
       <Tab.Screen name="Album" component={AlbumScreen} />
+      <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
 }

@@ -1,4 +1,3 @@
-// src/screens/Auth/LoginScreen.js
 import React, { useState, useContext } from "react";
 import { View, TextInput, Button, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { AuthContext } from "../../context/AuthContext";

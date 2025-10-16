@@ -7,6 +7,7 @@ import { View, ActivityIndicator } from "react-native";
 
 function RootNavigator() {
   const { user, initializing } = useContext(AuthContext);
+  
   if (initializing) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
@@ -14,6 +15,7 @@ function RootNavigator() {
       </View>
     );
   }
+  
   return user ? <MainNavigator /> : <AuthNavigator />;
 }
 
